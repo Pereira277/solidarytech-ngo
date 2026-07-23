@@ -6,10 +6,31 @@ from psycopg2.pool import SimpleConnectionPool
 from flask import Flask, request, jsonify
 import logging
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Initialize OTel tracer
+otlp_endpoint = os.environ.get(
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "http://otel-collector-opentelemetry-collector.monitoring.svc.cluster.local:4317"
+)
+provider = TracerProvider()
+processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True))
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+# Auto-instrument Flask and psycopg2
+FlaskInstrumentor().instrument_app(app)
+Psycopg2Instrumentor().instrument()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
